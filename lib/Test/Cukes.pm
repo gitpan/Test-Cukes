@@ -1,12 +1,12 @@
 package Test::Cukes;
 use strict;
 use warnings;
-use Exporter::Lite;
-use Test::More;
 use Test::Cukes::Feature;
 use Carp::Assert;
 
-our $VERSION = "0.08";
+use base 'Test::Builder::Module';
+
+our $VERSION = "0.09";
 our @EXPORT = qw(feature runtests Given When Then assert affirm should shouldnt);
 
 our @missing_steps = ();
@@ -29,15 +29,7 @@ sub runtests {
         $feature->{$caller} = Test::Cukes::Feature->new($feature_text);
     }
 
-    my $total_tests = 0;
-
     my @scenarios_of_caller = @{$feature->{$caller}->scenarios};
-
-    for my $scenario (@scenarios_of_caller) {
-        $total_tests += @{$scenario->steps};
-    }
-
-    Test::More::plan(tests => $total_tests);
 
     for my $scenario (@scenarios_of_caller) {
         my $skip = 0;
@@ -47,7 +39,7 @@ sub runtests {
     SKIP:
         for my $step_text (@{$scenario->steps}) {
             my ($pre, $step) = split " ", $step_text, 2;
-            Test::More::skip($step, 1) if $skip;
+            Test::Cukes->skip($step, 1) if $skip;
 
             $gwt = $pre if $pre =~ /(Given|When|Then)/;
 
@@ -55,12 +47,12 @@ sub runtests {
             for my $step_pattern (keys %$steps) {
                 my $cb = $steps->{$step_pattern}->{code};
 
-                if ($step =~ m/$step_pattern/) {
-                    eval { $cb->(); };
-                    Test::More::ok(!$@, $step_text);
+                if (my (@matches) = $step =~ m/$step_pattern/) {
+                    eval { $cb->(@matches); };
+                    Test::Cukes->builder->ok(!$@, $step_text);
 
                     if ($@) {
-                        Test::More::diag($@);
+                        Test::Cukes->builder->diag($@);
                         $skip = 1;
                         $skip_reason = "Failed: $step_text";
                     }
@@ -77,6 +69,10 @@ sub runtests {
         }
     }
 
+    # If the user doesn't specify tests explicitly when they use Test::Cukes;,
+    # assume they had no plan and call done_testing for them.
+    Test::Cukes->builder->done_testing if !Test::Cukes->builder->has_plan;
+
     report_missing_steps();
 
     return 0;
@@ -84,11 +80,11 @@ sub runtests {
 
 sub report_missing_steps {
     return if @missing_steps == 0;
-    Test::More::note("There are missing step definitions, fill them in:");
+    Test::Cukes->builder->note("There are missing step definitions, fill them in:");
     for my $step_text (@missing_steps) {
         my ($word, $text) = ($step_text =~ /^(Given|When|Then) (.+)$/);
         my $msg = "\n$word qr/${text}/ => sub {\n    ...\n};\n";
-        Test::More::note($msg);
+        Test::Cukes->builder->note($msg);
     }
 }
 
@@ -122,8 +118,8 @@ Test::Cukes - A BBD test tool inspired by Cucumber
 Write your test program like this:
 
   # test.pl
-  use Test::More;
   use Test::Cukes;
+  # use Test::Cukes tests => 3;
 
   feature(<<TEXT);
   Feature: writing behavior tests
@@ -137,8 +133,9 @@ Write your test program like this:
       Then it should pass
   TEXT
 
-  Given qr/the test program is running/, sub {
-      assert "running";
+  Given qr/the (.+) program is (.+)/, sub {
+      my ($program_name, $running_or_failing) = @_;
+      assert "running program '$program_name'";
   };
 
   When qr/it reaches this step/, sub {
@@ -163,22 +160,30 @@ When it runs, it looks like this:
 
 Test::Cukes is a testing tool inspired by Cucumber
 (L<http://cukes.info>). It lets your write your module test with
-scenarios. It is supposed to be used with L<Test::More> or other
-family of C<Test::*> modules. It uses L<Test::More::note> function
+scenarios. It may be used with L<Test::More> or other family of
+TAP C<Test::*> modules. It uses L<Test::Builder::note> function
 internally to print messages.
 
 This module implements the Given-When-Then clause only in English. To
 uses it in the test programs, feed the feature text into C<feature>
 function, defines your step handlers, and then run all the tests by
-calling C<runtests>. Each steps should use C<assert> instead of C<ok>
-or C<is> to verify desired result.
+calling C<runtests>. Step handlers may be defined in separate modules,
+as long as those modules are included before C<runtests> is called.
+Each step may use either C<assert> or standard TAP functions such as
+C<Test::Simple>'s C<ok> or C<Test::More>'s C<is> to verify desired
+result.  If you specify a plan explicitly, you should be aware that
+each step line in your scenario runs an additional test, and will
+therefore add to the number of tests you must indicate.
 
-If any assertion in the Given block failed, the the corresponding
-C<When> and C<Then> blocks are skipped.
+If any assertion in the Given block failed, the following C<When> and
+C<Then> blocks are all skipped.
 
 You don't need to specify the number of tests with C<plan>. Each step
 block itself is simply one test. If the block died, it's then
 considered failed. Otherwise it's considered as passing.
+
+In the call to L<Test::Cukes::runtests>, L<done_testing> will automatically
+be called for you if you didn't specify a plan.
 
 Test::Cukes re-exports C<assert> function from C<Carp::Assert> for you
 to use in the step block.
@@ -189,6 +194,10 @@ the documents from L<http://cukes.info>.
 =head1 AUTHOR
 
 Kang-min Liu E<lt>gugod@gugod.orgE<gt>
+
+=head1 CONTRIBUTORS
+
+Tatsuhiko Miyagawa, Tristan Pratt
 
 =head1 SEE ALSO
 
