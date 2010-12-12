@@ -12,6 +12,7 @@ Feature: foo
     Given I will say the word 'cake'
     When it is my birthday
     Then we will eat 28 cakes
+
 FEATURE_TEXT
 
 my @passed;

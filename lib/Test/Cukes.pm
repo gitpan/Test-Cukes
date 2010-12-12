@@ -3,10 +3,11 @@ use strict;
 use warnings;
 use Test::Cukes::Feature;
 use Carp::Assert;
+use Try::Tiny;
 
 use base 'Test::Builder::Module';
 
-our $VERSION = "0.09";
+our $VERSION = "0.10";
 our @EXPORT = qw(feature runtests Given When Then assert affirm should shouldnt);
 
 our @missing_steps = ();
@@ -36,10 +37,13 @@ sub runtests {
         my $skip_reason = "";
         my $gwt;
 
-    SKIP:
+
         for my $step_text (@{$scenario->steps}) {
             my ($pre, $step) = split " ", $step_text, 2;
-            Test::Cukes->skip($step, 1) if $skip;
+            if ($skip) {
+                Test::Cukes->builder->skip($step_text);
+                next;
+            }
 
             $gwt = $pre if $pre =~ /(Given|When|Then)/;
 
@@ -48,10 +52,16 @@ sub runtests {
                 my $cb = $steps->{$step_pattern}->{code};
 
                 if (my (@matches) = $step =~ m/$step_pattern/) {
-                    eval { $cb->(@matches); };
-                    Test::Cukes->builder->ok(!$@, $step_text);
+                    my $ok = 1;
+                    try {
+                        $cb->(@matches);
+                    } catch {
+                        $ok = 0;
+                    };
 
-                    if ($@) {
+                    Test::Cukes->builder->ok($ok, $step_text);
+
+                    if ($skip == 0 && !$ok) {
                         Test::Cukes->builder->diag($@);
                         $skip = 1;
                         $skip_reason = "Failed: $step_text";
